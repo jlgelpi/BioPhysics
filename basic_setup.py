@@ -1,4 +1,4 @@
-#! /usr/bin/python3
+#!/usr/bin/env python
 
 """
     Initial setup a structure for Energy evaluation

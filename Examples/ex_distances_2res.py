@@ -1,4 +1,4 @@
-#! /usr/bin/python3
+#!/usr/bin/env python
 #
 """ Simple program to print distances between atoms """
 
