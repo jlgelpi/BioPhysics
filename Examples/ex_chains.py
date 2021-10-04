@@ -20,9 +20,11 @@ print (','.join([ch.id for ch in st[0]]))
 
 chains_ok = ['A', 'C']
 
-for chn in st[0]:
-    if chn.id not in chains_ok:
-        st[0].detach_child(chn.id)
+chains_orig = [ch.id for ch in st[0]]
+
+for chn_id in chains_orig:
+    if chn_id not in chains_ok:
+        st[0].detach_child(chn_id)
 
 output_pdb_path = "chainsAC.pdb"
 
