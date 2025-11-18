@@ -5,12 +5,15 @@
 import sys
 
 class VdwParamset():
+    ''' Class to hold VdW parameters 
+        Input: CMIP VDW parameter file
+    '''
     def __init__ (self, file_name):
         self.at_types = {}
         try:
             fh = open(file_name, "r")
         except OSError:
-            print ("#ERROR while loading parameter file (", file_name, ")")
+            print ("#ERROR parameter file not found or not readable (", file_name, ")")
             sys.exit(2)
         for line in fh:
             if line[0] == '#':
@@ -21,6 +24,7 @@ class VdwParamset():
         fh.close()
 
 class AtomType():
+    ''' Class to hold Atomic parameters '''
     def __init__(self, data):
         self.id   = data[0]
         self.eps  = float(data[1])
@@ -28,4 +32,3 @@ class AtomType():
         self.mass = float(data[3])
         self.fsrf = float(data[4])
         self.rvdw = self.sig * 0.5612
-

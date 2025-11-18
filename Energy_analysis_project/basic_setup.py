@@ -4,7 +4,6 @@
     Initial setup a structure for Energy evaluation
 """
 import argparse
-import sys
 import os
 
 from Bio.PDB.PDBParser import PDBParser
@@ -51,10 +50,10 @@ st = parser.get_structure('STR', args.pdb_file.name)
 
 # We will use the xtra attribute in Bio.PDB.Atom to hold the new data
 # Getting Charges and Atom type from PDBQT
-print('Parsing PDBQT', args.pdbqt_file.name)
+print(f"Parsing PDBQT {args.pdbqt_file.name}")
 params=[{}]
 
-#Fix aton numbers when they do not start in 1
+# Fix atom numbers when they do not start in 1
 i = 1
 for at in st.get_atoms():
     at.serial_number = i
@@ -62,7 +61,7 @@ for at in st.get_atoms():
 
 for line in args.pdbqt_file:
     line = line.rstrip()
-    #Skip TER records from PDBQT
+    # Skip TER records from PDBQT
     if line.find('TER') != -1:
         continue
     params.append({'charge': line[69:76], 'type': line[77:].replace(' ','')})
@@ -73,13 +72,13 @@ for at in st.get_atoms():
     at.xtra['charge'] = float(params[at.serial_number]['charge'])
     at.xtra['vdw'] = ff_params.at_types[at.xtra['atom_type']]
     total_charge += at.xtra['charge']
-print('Total Charge: {:8.2f}'.format(total_charge))
+print(f'Total Charge: {total_charge:8.2f}')
 
 # Calculating surfaces
 # Srf goes to .xtra['EXP_NACCESS'] field
 srf = NACCESS_atomic(st[0], naccess_binary=args.naccess_bin)
 
-# Simple Test for atom fields. Choose one atom from the PDB file. st[model][chain_id][res_number][atom_name]
+# Simple Example Test for atom fields. 
+# Choose one atom from the PDB file. st[model][chain_id][res_number][atom_name]
 print(vars(st[0]['A'][42]['N']))
 print(vars(st[0]['A'][42]['N'].xtra['vdw']))
-
