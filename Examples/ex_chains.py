@@ -9,12 +9,12 @@ parser = PDBParser()
 
 st = parser.get_structure('6AXG', '6axg.pdb')
 
-print (len(st[0]), " chains found")
+print (f"{len(st[0])} chains found")
 
 for ch in st[0]:
     print (ch.id)
 
-# More compact "python" way
+# A More compact "python" way
 
 print (','.join([ch.id for ch in st[0]]))
 

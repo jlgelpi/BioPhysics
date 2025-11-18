@@ -15,8 +15,7 @@ res_num = 20
 
 res = st[0]["A"][res_num]
 
-print ("Residue", res.get_resname(), res.id[1])
+print (f"Residue: {res.get_resname()}, {res.id[1]}")
 print("Atoms:")
-for atom in res.get_atoms(): 
-    print(res.get_resname(), res.id,
-              atom.get_name(), atom.get_coord())
+for atom in res.get_atoms():
+    print(f"{res.get_resname()} {res.id} {atom.get_name()} {atom.get_coord()}")

@@ -8,14 +8,13 @@ parser = PDBParser()
 
 st = parser.get_structure('1UBQ', '1ubq.pdb')
 
-selec = []
+selected = []
 aa = ["ARG"]
 
 for at in st.get_atoms():
     if at.get_parent().get_resname() in aa:
-        selec.append(at)
+        selected.append(at)
 
 print("Coordinates:")
-for atom in selec:
-    print(atom.get_parent().get_resname(), atom.get_parent().id,
-          atom.get_name(), atom.get_coord())
+for atom in selected:
+    print(f"{atom.get_parent().get_resname()}, {atom.get_parent().id}, {atom.get_name()}, {atom.get_coord()}")

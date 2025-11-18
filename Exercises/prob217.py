@@ -5,11 +5,10 @@ __date__ = "$02-nov-2017 8:21:31$"
 
 import math
 
-#Parameters
+# VdW Parameters
 
 SIG = 3.4
 EPS = 0.09
-
 
 class System():
 
@@ -47,12 +46,12 @@ class Particle():
 
     def distance(self, other):
         """Evaluates Sqrt[(x0-x1)2 +(y0-y1)2 + (z0-z1)2]"""
-        return math.sqrt((self.x-other.x) ** 2 + (self.y-other.y) ** 2 + (self.z-other.z) ** 2)
+        return math.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2 + (self.z - other.z) ** 2)
 
     def vdw_interaction(self, other, dmin):
         """vdwenergy between two particles"""
         f = SIG / (self.distance(other) * dmin)
-        return 4. * EPS * (pow(f, 12)-pow(f, 6))
+        return 4. * EPS * (pow(f, 12) - pow(f, 6))
 
     def elec_interaction(self, other, dmin):
         """Electrostatic interaction"""
@@ -65,31 +64,34 @@ class Particle():
 
 sys = System(3.8) #dmin included in the code, should be an external parameter!!
 
-[evdw, eint] = sys.calc_energy()
+[system_evdw, system_eint] = sys.calc_energy()
 
-print ("Evdw=", evdw)
+print (f"Evdw={system_evdw}")
+
 #Removing central particle
+
 #p0 is the central particle
 p0 = Particle(0, 0, 0, 0)
-evdw0 = 0
+
+system_evdw0 = 0
 for pi in sys.parts:
     if pi != p0:
-        evdw0 = evdw0 + p0.vdw_interaction(pi, sys.d)
-print ("New Evdw=", evdw-evdw0)
+        system_evdw0 += p0.vdw_interaction(pi, sys.d)
+print (f"New Evdw={system_evdw-system_evdw0}")
 
 #Electrostatics, equal positive charge
 #Calculate for a q=1e and adjust later
 for pi in sys.parts:
     pi.c = 1.
-(evdw1, eint1) = sys.calc_energy()
-print ("Charge to equilibrate: ",math.sqrt(-evdw / eint1))
+(system_evdw1, system_eint1) = sys.calc_energy()
+print (f"Charge to equilibrate: {math.sqrt(-system_evdw / system_eint1)}")
 
 # Negative in central particle
-ecen=0.
-p0.c=1.
+system_ecen = 0.
+p0.c = 1.
 for pi in sys.parts:
     if pi != p0:
-        ecen = ecen +  p0.elec_interaction(pi,sys.d)
-neweint = eint1 - 2. * ecen
-print ("Centrl neg to compensate: ", math.sqrt(-evdw/neweint))
+        system_ecen += p0.elec_interaction(pi,sys.d)
+system_neweint = system_eint1 - 2. * system_ecen
+print (f"Centrl neg to compensate: {math.sqrt(-system_evdw/system_neweint)}")
 

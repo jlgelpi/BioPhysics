@@ -20,7 +20,7 @@ select = []
 for at in st.get_atoms():
     if at.id == 'CA':
         select.append(at)
-        print("ATOM:", at.get_parent().get_resname(),at.get_parent().id[1], at.id)	
+        print(f"ATOM: {at.get_parent().get_resname()}, {at.get_parent().id[1]}, {at.id}")
 
 # Preparing search
 nbsearch = NeighborSearch(select)
@@ -32,8 +32,8 @@ print("NBSEARCH:")
 ncontact = 1
 
 for at1, at2 in nbsearch.search_all(MAXDIST):
-    print("Contact: ", ncontact)
-    print("at1", at1, at1.get_serial_number(), at1.get_parent().get_resname())
-    print("at2", at2, at2.get_serial_number(), at2.get_parent().get_resname())
+    print(f"Contact: {ncontact}")
+    print(f"at1: {at1}, {at1.get_serial_number()}, {at1.get_parent().get_resname()}")
+    print(f"at2: {at2}, {at2.get_serial_number()}, {at2.get_parent().get_resname()}")
     print()
     ncontact += 1
