@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Create a vdwprm-style file and a coordinate file with AMBER types.
+"""Create a vdwprm-style file and a coordinate file with AMBER types from GROMACS Topology.
 
-Usage: python prepare_amber_files.py [topology] [coordinates]
-       python prepare_amber_files.py [topology] --atom-parameters [CSV]
+Usage: python prepare_amber_files.py [topology] [coordinates] [--reference REFERENCE] [--parameters PARAMETERS] [--pdbqt PDBQT]
 
 The coordinate file must be the GRO produced with the expanded topology.
-The PDBQT-like output contains AMBER types, not AutoDock types. Charges retain
+The PDBQT-like output contains Forcefield types. Charges retain
 four decimal places. Sigma is converted from nm to Angstrom and epsilon from
 kJ/mol to kcal/mol. Surface coefficients are approximate categories taken
-from the reference vdwprm, not parameters supplied by the AMBER force field.
+from the reference file, not parameters supplied by the AMBER force field.
 Only type-level Lennard-Jones parameters are exported, not pair overrides or
 1-4 interactions.
 """
@@ -21,8 +20,44 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+SURFACE_COEFFICIENTS = {
+    "A": 0.111, # Aromatic C
+    "C": 0.019, # Aliphatic C
+    "N": -0.124, 
+    "P": 0.000,
+    "S": 0.026,
+    "H": 0.0, # All hydrogen types 
+    "OH": -0.043, # Hydroxyl O
+    "OC": -0.069, # Carboxylate O
+    "O": -0.031,  # Carbonyl O
+}
 
+SURFACE_MAP_TYPES = {
+    "CT": "C",
+    "C*": "A",
+    "CB": "A",
+    "CN": "A",
+    "CW": "A",
+    "CA": "A",
+    "CR": "A",
+    "CC": "A",
+    "CV": "A",
+    "O2": "OC",
+    "OH": "OH",
+    "SH": "S",
+    "NA": "N",
+    "NB": "N",
+    "N2": "N",
+    "N3": "N",
+    "HC": "H",    
+    "H1": "H",
+    "H4": "H",
+    "H5": "H",
+    "HA": "H",
+    "HO": "H",
+    "HP": "H",
+    "HS": "H",
+}    
 
 def read_topology(path):
     atomtypes = {}
@@ -101,56 +136,6 @@ def read_topology(path):
                     raise ValueError(f"{path}: undefined atom type {atom_type} in {name}")
     return atomtypes, type_metadata, molecule_types, molecules
 
-
-def write_csv(output, atomtypes, molecule_types, molecules):
-    writer = csv.writer(output, lineterminator="\n")
-    writer.writerow([
-        "atom_index", "molecule_type", "molecule_copy", "atom_number",
-        "residue_number", "residue_name", "atom_name", "atom_type",
-        "charge_e", "sigma_nm", "epsilon_kj_mol",
-    ])
-    atom_index = 0
-    copies = defaultdict(int)
-    for molecule_name, count in molecules:
-        for _ in range(count):
-            copies[molecule_name] += 1
-            for nr, atom_type, resnr, residue, atom, charge in molecule_types[molecule_name]:
-                atom_index += 1
-                sigma, epsilon = atomtypes[atom_type]
-                writer.writerow([
-                    atom_index, molecule_name, copies[molecule_name], nr,
-                    resnr, residue, atom, atom_type, charge, sigma, epsilon,
-                ])
-
-
-def read_surface_coefficients(path):
-    coefficients = {}
-    with path.open(encoding="utf-8") as source:
-        for line in source:
-            fields = line.split()
-            if not fields or fields[0].startswith("#") or fields[0] == "TIPXEP":
-                continue
-            coefficients[fields[0]] = float(fields[4])
-    return coefficients
-
-
-def surface_category(atom_type, atomic_number):
-    if atomic_number == 1:
-        if atom_type in {"H", "HS"}:
-            return "HN"
-        if atom_type == "HO":
-            return "HO"
-        if atom_type in {"HW", "HW_spc", "HW_tip4p", "HW_tip4pew"}:
-            return "HW"
-        if atom_type in {"HC", "H1", "H2", "H3", "H4", "H5", "HA", "HP"}:
-            return "H"
-    elif atomic_number == 8 and atom_type.startswith("OW"):
-        return "OW"
-    elif atomic_number in {6, 7, 8, 15, 16}:
-        return {6: "C", 7: "N", 8: "O", 15: "P", 16: "S"}[atomic_number]
-    raise ValueError(f"no reference surface category for atom type {atom_type}")
-
-
 def expanded_atoms(molecule_types, molecules):
     for molecule, count in molecules:
         match = re.fullmatch(r".*_chain_([A-Za-z0-9])", molecule)
@@ -160,21 +145,24 @@ def expanded_atoms(molecule_types, molecules):
                 yield chain, atom
 
 
-def make_outputs(topology_path, gro_path, reference_path):
+
+def make_outputs(topology_path, gro_path):
     atomtypes, metadata, molecule_types, molecules = read_topology(topology_path)
-    coefficients = read_surface_coefficients(reference_path)
+    coefficients = SURFACE_COEFFICIENTS
     atoms = list(expanded_atoms(molecule_types, molecules))
     used_types = sorted({atom[1][1] for atom in atoms})
     parameters = ["# type epsilon(kcal/mol) sigma(A) mass fsrf\n"]
     for name in used_types:
         atomic_number, mass = metadata[name]
-        category = surface_category(name, atomic_number)
-        if category not in coefficients or not math.isfinite(coefficients[category]):
-            raise ValueError(f"missing or invalid surface coefficient for {category}")
+        if name not in SURFACE_COEFFICIENTS:
+            coefficients[name] = SURFACE_COEFFICIENTS[SURFACE_MAP_TYPES.get(name, name)]
+        else:
+            coefficients[name] = SURFACE_COEFFICIENTS[name]
+        
         sigma, epsilon = atomtypes[name]
         parameters.append(
             f"{name:<8s} {float(epsilon) / 4.184:.4f} "
-            f"{float(sigma) * 10:.4f} {mass:.5f} {coefficients[category]:.6f}\n"
+            f"{float(sigma) * 10:.4f} {mass:6.3f} {coefficients[name]:6.3f}\n"
         )
 
     records = []
@@ -221,37 +209,26 @@ def make_outputs(topology_path, gro_path, reference_path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("topology", nargs="?", type=Path, default=HERE / "2vgb.top.txt")
-    parser.add_argument("coordinates", nargs="?", type=Path, default=HERE / "2vbg_fixed.gro")
-    parser.add_argument("--reference", type=Path, default=HERE.parent / "data" / "vdwprm")
-    parser.add_argument("--parameters", type=Path, default=HERE / "2vgb_amber.vdwprm")
-    parser.add_argument("--pdbqt", type=Path, default=HERE / "2vgb_amber.pdbqt")
-    parser.add_argument(
-        "--atom-parameters", nargs="?", type=Path, const=Path("-"), metavar="CSV",
-        help="export atom parameters as CSV and exit (default: standard output)",
-    )
+    parser.add_argument("topology", nargs="?", type=Path)
+    parser.add_argument("coordinates", nargs="?", type=Path)
+    parser.add_argument("--output_prefix", type=Path)
+    parser.add_argument("--not_overwrite", action="store_true")
     args = parser.parse_args()
+    args.parameters = args.output_prefix.with_suffix(".vdwprm")
+    args.pdbqt = args.output_prefix.with_suffix(".pdbqt")
     try:
-        if args.atom_parameters is not None:
-            atomtypes, _, molecule_types, molecules = read_topology(args.topology)
-            if args.atom_parameters == Path("-"):
-                write_csv(sys.stdout, atomtypes, molecule_types, molecules)
-            else:
-                with args.atom_parameters.open("x", encoding="utf-8", newline="") as output:
-                    write_csv(output, atomtypes, molecule_types, molecules)
-                print(f"Wrote atom parameters to {args.atom_parameters}")
-            return
-
         outputs = [args.parameters, args.pdbqt]
         if len({path.resolve() for path in outputs}) != len(outputs):
             raise ValueError("output files must be different")
         for path in outputs:
             if path.exists():
-                raise ValueError(f"output already exists: {path}")
-        parameters, records = make_outputs(args.topology, args.coordinates, args.reference)
-        with args.parameters.open("x", encoding="utf-8") as output:
+                if args.not_overwrite:
+                    raise ValueError(f"Output already exists: {path}")
+                print(f"Output already exists: {path}, overwriting...")
+        parameters, records = make_outputs(args.topology, args.coordinates)
+        with args.parameters.open("w", encoding="utf-8") as output:
             output.writelines(parameters)
-        with args.pdbqt.open("x", encoding="utf-8") as output:
+        with args.pdbqt.open("w", encoding="utf-8") as output:
             output.writelines(records)
     except (OSError, ValueError, KeyError) as exc:
         parser.exit(1, f"error: {exc}\n")
