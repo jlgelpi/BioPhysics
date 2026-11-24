@@ -30,12 +30,10 @@ parser.add_argument(
     help='Vdw parameters'
 )
 
-parser.add_argument('pdb_file',help='Input PDB', type=open)
 parser.add_argument('pdbqt_file',help='Input PDBQT', type=open)
 
 args = parser.parse_args()
 
-print("PDB File:", args.pdb_file.name)
 print("PDBQT File:", args.pdbqt_file.name)
 print("Parameters File:", args.vdwprm_file)
 
@@ -43,14 +41,13 @@ print("Parameters File:", args.vdwprm_file)
 ff_params = VdwParamset(args.vdwprm_file)
 
 parser = PDBParser(PERMISSIVE=1)
-print('Parsing PDB', args.pdb_file.name)
+print('Parsing PDB', args.pdbqt_file.name)
 
 # load structure from PDB file of PDB ifle handler
-st = parser.get_structure('STR', args.pdb_file.name)
+st = parser.get_structure('STR', args.pdbqt_file.name)
 
 # We will use the xtra attribute in Bio.PDB.Atom to hold the new data
 # Getting Charges and Atom type from PDBQT
-print(f"Parsing PDBQT {args.pdbqt_file.name}")
 params=[{}]
 
 # Fix atom numbers when they do not start in 1
@@ -80,5 +77,5 @@ srf = NACCESS_atomic(st[0], naccess_binary=args.naccess_bin)
 
 # Simple Example Test for atom fields. 
 # Choose one atom from the PDB file. st[model][chain_id][res_number][atom_name]
-print(vars(st[0]['A'][42]['N']))
-print(vars(st[0]['A'][42]['N'].xtra['vdw']))
+print(vars(st[0]['A'][57]['N']))
+print(vars(st[0]['A'][57]['N'].xtra['vdw']))
