@@ -2,6 +2,7 @@
 """Create a vdwprm-style file and a coordinate file with AMBER types.
 
 Usage: python prepare_amber_files.py [topology] [coordinates]
+       python prepare_amber_files.py [topology] --atom-parameters [CSV]
 
 The coordinate file must be the GRO produced with the expanded topology.
 The PDBQT-like output contains AMBER types, not AutoDock types. Charges retain
@@ -13,30 +14,113 @@ Only type-level Lennard-Jones parameters are exported, not pair overrides or
 """
 
 import argparse
+import csv
 import math
 import re
+import sys
+from collections import defaultdict
 from pathlib import Path
-
-from GROMACS.extract_atom_parameters import read_topology
 
 HERE = Path(__file__).resolve().parent
 
 
-def read_type_metadata(path):
-    metadata = {}
+def read_topology(path):
+    atomtypes = {}
+    type_metadata = {}
+    molecule_types = {}
+    molecules = []
     section = None
-    with path.open(encoding="utf-8") as source:
-        for line in source:
+    current_molecule = None
+    defaults = None
+
+    with path.open(encoding="utf-8") as topology:
+        for line_number, line in enumerate(topology, 1):
             line = line.split(";", 1)[0].strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                raise ValueError(f"{path}:{line_number}: preprocessing directives are not supported")
             if line.startswith("[") and line.endswith("]"):
                 section = line[1:-1].strip().lower()
-            elif line and section == "defaults":
-                if line.split()[:2] != ["1", "2"]:
-                    raise ValueError("only Lennard-Jones combination rule 2 is supported")
-            elif line and section == "atomtypes":
-                fields = line.split()
-                metadata[fields[0]] = (int(fields[1]), float(fields[2]))
-    return metadata
+                continue
+            fields = line.split()
+            try:
+                if section == "defaults":
+                    if defaults is not None or len(fields) < 2:
+                        raise ValueError("expected one [ defaults ] entry")
+                    defaults = (int(fields[0]), int(fields[1]))
+                    if defaults[0] != 1 or defaults[1] not in (2, 3):
+                        raise ValueError("only Lennard-Jones combination rules 2 and 3 are supported")
+                elif section == "atomtypes":
+                    if len(fields) != 7:
+                        raise ValueError("expected name, atomic number, mass, charge, ptype, sigma, epsilon")
+                    name = fields[0]
+                    if name in atomtypes:
+                        raise ValueError(f"duplicate atom type {name}")
+                    atomic_number, mass = int(fields[1]), float(fields[2])
+                    sigma, epsilon = fields[-2:]
+                    if not all(math.isfinite(float(value)) and float(value) >= 0
+                               for value in (sigma, epsilon)):
+                        raise ValueError(f"invalid Lennard-Jones parameters for {name}")
+                    atomtypes[name] = (sigma, epsilon)
+                    type_metadata[name] = (atomic_number, mass)
+                elif section == "moleculetype":
+                    if len(fields) < 2:
+                        raise ValueError("invalid molecule type")
+                    current_molecule = fields[0]
+                    if current_molecule in molecule_types:
+                        raise ValueError(f"duplicate molecule type {current_molecule}")
+                    molecule_types[current_molecule] = []
+                elif section == "atoms":
+                    if current_molecule is None or len(fields) < 7:
+                        raise ValueError("expected a molecule type and an atom with an explicit charge")
+                    nr, atom_type, resnr, residue, atom, _, charge = fields[:7]
+                    if int(nr) != len(molecule_types[current_molecule]) + 1:
+                        raise ValueError("atom numbers must be consecutive and start at 1")
+                    int(resnr)
+                    if not math.isfinite(float(charge)):
+                        raise ValueError("atom charge must be finite")
+                    molecule_types[current_molecule].append(
+                        (nr, atom_type, resnr, residue, atom, charge)
+                    )
+                elif section == "molecules":
+                    if len(fields) != 2 or int(fields[1]) < 0:
+                        raise ValueError("expected a molecule name and non-negative count")
+                    molecules.append((fields[0], int(fields[1])))
+            except ValueError as exc:
+                raise ValueError(f"{path}:{line_number}: {exc}") from exc
+
+    if defaults is None or not atomtypes or not molecules:
+        raise ValueError(f"{path}: missing defaults, atom types, or system molecules")
+    for name, count in molecules:
+        if name not in molecule_types or not molecule_types[name]:
+            raise ValueError(f"{path}: missing atoms for molecule type {name}")
+        if count:
+            for _, atom_type, _, _, _, _ in molecule_types[name]:
+                if atom_type not in atomtypes:
+                    raise ValueError(f"{path}: undefined atom type {atom_type} in {name}")
+    return atomtypes, type_metadata, molecule_types, molecules
+
+
+def write_csv(output, atomtypes, molecule_types, molecules):
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow([
+        "atom_index", "molecule_type", "molecule_copy", "atom_number",
+        "residue_number", "residue_name", "atom_name", "atom_type",
+        "charge_e", "sigma_nm", "epsilon_kj_mol",
+    ])
+    atom_index = 0
+    copies = defaultdict(int)
+    for molecule_name, count in molecules:
+        for _ in range(count):
+            copies[molecule_name] += 1
+            for nr, atom_type, resnr, residue, atom, charge in molecule_types[molecule_name]:
+                atom_index += 1
+                sigma, epsilon = atomtypes[atom_type]
+                writer.writerow([
+                    atom_index, molecule_name, copies[molecule_name], nr,
+                    resnr, residue, atom, atom_type, charge, sigma, epsilon,
+                ])
 
 
 def read_surface_coefficients(path):
@@ -77,8 +161,7 @@ def expanded_atoms(molecule_types, molecules):
 
 
 def make_outputs(topology_path, gro_path, reference_path):
-    atomtypes, molecule_types, molecules = read_topology(topology_path)
-    metadata = read_type_metadata(topology_path)
+    atomtypes, metadata, molecule_types, molecules = read_topology(topology_path)
     coefficients = read_surface_coefficients(reference_path)
     atoms = list(expanded_atoms(molecule_types, molecules))
     used_types = sorted({atom[1][1] for atom in atoms})
@@ -143,11 +226,25 @@ def main():
     parser.add_argument("--reference", type=Path, default=HERE.parent / "data" / "vdwprm")
     parser.add_argument("--parameters", type=Path, default=HERE / "2vgb_amber.vdwprm")
     parser.add_argument("--pdbqt", type=Path, default=HERE / "2vgb_amber.pdbqt")
+    parser.add_argument(
+        "--atom-parameters", nargs="?", type=Path, const=Path("-"), metavar="CSV",
+        help="export atom parameters as CSV and exit (default: standard output)",
+    )
     args = parser.parse_args()
     try:
-        outputs = (args.parameters, args.pdbqt)
-        if outputs[0].resolve() == outputs[1].resolve():
-            raise ValueError("parameter and PDBQT outputs must be different files")
+        if args.atom_parameters is not None:
+            atomtypes, _, molecule_types, molecules = read_topology(args.topology)
+            if args.atom_parameters == Path("-"):
+                write_csv(sys.stdout, atomtypes, molecule_types, molecules)
+            else:
+                with args.atom_parameters.open("x", encoding="utf-8", newline="") as output:
+                    write_csv(output, atomtypes, molecule_types, molecules)
+                print(f"Wrote atom parameters to {args.atom_parameters}")
+            return
+
+        outputs = [args.parameters, args.pdbqt]
+        if len({path.resolve() for path in outputs}) != len(outputs):
+            raise ValueError("output files must be different")
         for path in outputs:
             if path.exists():
                 raise ValueError(f"output already exists: {path}")
